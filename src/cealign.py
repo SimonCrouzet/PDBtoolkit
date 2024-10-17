@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from scipy.linalg import svd
+from numba import jit, prange
 
 class CEAligner:
     def __init__(self, window_size=8, max_gap=30, d0=3.0, d1=4.0, use_guide_atoms=True):
@@ -8,7 +9,7 @@ class CEAligner:
         self.max_gap = max_gap
         self.d0 = d0
         self.d1 = d1
-        self.max_kept = 20
+        self.max_kept = 10
         self.reference_coords = None
         self.reference_atoms = None
         self.use_guide_atoms = use_guide_atoms
@@ -40,9 +41,11 @@ class CEAligner:
 
         dm1 = self.calc_distance_matrix(self.reference_coords)
         dm2 = self.calc_distance_matrix(mobile_coords)
-        sim_matrix = self.calc_similarity_matrix(dm1, dm2)
-        paths = self.find_path(sim_matrix, dm1, dm2)
-        result = self.find_best(paths, self.reference_coords, mobile_coords, mobile_structure)
+        sim_matrix = self.calc_similarity_matrix(dm1, dm2, self.window_size, self.d0)
+        paths = self.find_path(sim_matrix, dm1, dm2, self.window_size, self.max_gap, self.d0, self.d1)
+        path_scores = [self.path_score(path, self.reference_coords, mobile_coords, self.window_size) for path in paths]
+        best_paths = [path for _, path in sorted(zip(path_scores, paths))[:self.max_kept]]
+        result = self.find_best(best_paths, self.reference_coords, mobile_coords, mobile_atoms)
 
         if transform:
             for atom, new_coord in zip(mobile_atoms, result['aligned_coords']):
@@ -50,65 +53,85 @@ class CEAligner:
 
         return result
 
-    def calc_distance_matrix(self, coords):
-        return squareform(pdist(coords))
+    @staticmethod
+    @jit(nopython=True, parallel=True)
+    def calc_distance_matrix(coords):
+        n = coords.shape[0]
+        dist_matrix = np.zeros((n, n))
+        for i in prange(n):
+            for j in range(i+1, n):
+                dist = np.sqrt(np.sum((coords[i] - coords[j])**2))
+                dist_matrix[i, j] = dist
+                dist_matrix[j, i] = dist
+        return dist_matrix
 
-    def calc_similarity_matrix(self, dm1, dm2):
-        sim_matrix = np.full((self.len1, self.len2), -1.0)
-        win_sum = (self.window_size - 1) * (self.window_size - 2) / 2
+    @staticmethod
+    @jit(nopython=True)
+    def calc_similarity_matrix(dm1, dm2, window_size, d0):
+        len1, len2 = dm1.shape[0], dm2.shape[0]
+        sim_matrix = np.full((len1, len2), -1.0)
+        win_sum = (window_size - 1) * (window_size - 2) / 2
 
-        for i in range(self.len1 - self.window_size + 1):
-            for j in range(self.len2 - self.window_size + 1):
-                score = np.sum(np.abs(dm1[i:i+self.window_size-1, i+1:i+self.window_size] - 
-                                      dm2[j:j+self.window_size-1, j+1:j+self.window_size]))
+        for i in range(len1 - window_size + 1):
+            for j in range(len2 - window_size + 1):
+                score = np.sum(np.abs(dm1[i:i+window_size-1, i+1:i+window_size] - 
+                                      dm2[j:j+window_size-1, j+1:j+window_size]))
                 sim_matrix[i, j] = score / win_sum
 
         return sim_matrix
 
-    def find_path(self, sim_matrix, dm1, dm2):
-        smaller = min(self.len1, self.len2)
-        win_cache = np.array([(i+1)*i*self.window_size/2 + (i+1)*((self.window_size-1)*(self.window_size-2)/2) for i in range(smaller)])
+    @staticmethod
+    @jit(nopython=True)
+    def find_path(sim_matrix, dm1, dm2, window_size, max_gap, d0, d1):
+        len1, len2 = sim_matrix.shape
+        smaller = min(len1, len2)
+        win_cache = np.array([(i+1)*i*window_size/2 + (i+1)*((window_size-1)*(window_size-2)/2) for i in range(smaller)])
         
         path_buffer = []
         score_buffer = []
         len_buffer = []
+        max_kept = 20
 
-        for ia in range(self.len1):
-            if ia > self.len1 - self.window_size * (max(len_buffer) - 1 if len_buffer else 0):
+        for ia in range(len1):
+            if ia > len1 - window_size * (max(len_buffer) if len_buffer else 0):
                 break
 
-            for ib in range(self.len2):
-                if sim_matrix[ia, ib] < self.d0 * 1.2:  # Allow 20% more flexibility
+            for ib in range(len2):
+                if sim_matrix[ia, ib] < d0 * 1.2:
                     cur_path = [(ia, ib)]
                     cur_path_length = 1
                     cur_total_score = 0.0
 
                     while True:
-                        ja_range = cur_path[-1][0] + self.window_size + np.arange(self.max_gap + 1)
-                        jb_range = cur_path[-1][1] + self.window_size + np.arange(self.max_gap + 1)
+                        ja_start = cur_path[-1][0] + window_size
+                        jb_start = cur_path[-1][1] + window_size
+                        ja_end = min(len1, ja_start + max_gap + 1)
+                        jb_end = min(len2, jb_start + max_gap + 1)
 
-                        valid_ja = ja_range[ja_range < self.len1 - self.window_size]
-                        valid_jb = jb_range[jb_range < self.len2 - self.window_size]
-
-                        if len(valid_ja) == 0 or len(valid_jb) == 0:
+                        if ja_start >= ja_end or jb_start >= jb_end:
                             break
 
-                        ja_grid, jb_grid = np.meshgrid(valid_ja, valid_jb)
-                        scores = sim_matrix[ja_grid, jb_grid]
+                        best_score = 1e10  # Use a large number instead of infinity
+                        best_ja = -1
+                        best_jb = -1
 
-                        valid_scores = (scores <= self.d0 * 1.2) & (scores != -1.0)
-                        if not np.any(valid_scores):
+                        for ja in range(ja_start, ja_end):
+                            for jb in range(jb_start, jb_end):
+                                score = sim_matrix[ja, jb]
+                                if score <= d0 * 1.2 and score != -1.0 and score < best_score:
+                                    best_score = score
+                                    best_ja = ja
+                                    best_jb = jb
+
+                        if best_ja == -1 or best_jb == -1:
                             break
 
-                        best_indices = np.unravel_index(np.argmin(scores[valid_scores]), scores[valid_scores].shape)
-                        ja, jb = ja_grid[valid_scores][best_indices], jb_grid[valid_scores][best_indices]
-
-                        cur_path.append((ja, jb))
+                        cur_path.append((best_ja, best_jb))
                         cur_path_length += 1
 
-                        score1 = (scores[valid_scores][best_indices] * self.window_size * (cur_path_length - 1) + 
-                                  sim_matrix[ja, jb] * ((self.window_size-1)*(self.window_size-2)/2)) / \
-                                 (self.window_size * (cur_path_length - 1) + ((self.window_size-1)*(self.window_size-2)/2))
+                        score1 = (best_score * window_size * (cur_path_length - 1) + 
+                                  sim_matrix[best_ja, best_jb] * ((window_size-1)*(window_size-2)/2)) / \
+                                 (window_size * (cur_path_length - 1) + ((window_size-1)*(window_size-2)/2))
 
                         score2 = (sim_matrix[ia, ib] if cur_path_length == 2 else cur_total_score) * win_cache[cur_path_length - 2] + \
                                  score1 * (win_cache[cur_path_length - 1] - win_cache[cur_path_length - 2])
@@ -116,39 +139,45 @@ class CEAligner:
 
                         cur_total_score = score2
 
-                        if cur_total_score > self.d1 * 1.2:  # Allow 20% more flexibility
+                        if cur_total_score > d1 * 1.2:
                             break
 
                     if cur_path_length > min(len_buffer) if len_buffer else 0 or \
-                       (cur_path_length == min(len_buffer) if len_buffer else 0 and cur_total_score < max(score_buffer) if score_buffer else float('inf')):
-                        if len(path_buffer) < self.max_kept:
+                       (cur_path_length == min(len_buffer) if len_buffer else 0 and cur_total_score < max(score_buffer) if score_buffer else 1e10):
+                        if len(path_buffer) < max_kept:
                             path_buffer.append(cur_path)
                             score_buffer.append(cur_total_score)
                             len_buffer.append(cur_path_length)
                         else:
-                            max_index = score_buffer.index(max(score_buffer))
-                            path_buffer[max_index] = cur_path
-                            score_buffer[max_index] = cur_total_score
-                            len_buffer[max_index] = cur_path_length
+                            # Find the index of the maximum score manually
+                            max_index = 0
+                            max_score = score_buffer[0]
+                            for i in range(1, len(score_buffer)):
+                                if score_buffer[i] > max_score:
+                                    max_index = i
+                                    max_score = score_buffer[i]
+                            
+                            if cur_total_score < max_score:
+                                path_buffer[max_index] = cur_path
+                                score_buffer[max_index] = cur_total_score
+                                len_buffer[max_index] = cur_path_length
 
         return path_buffer
 
-    def reconstruct_alignment(self, path):
+    def reconstruct_alignment(self, path, mobile_atoms):
         alignment = []
         for p in path:
             for i in range(self.window_size):
                 alignment.append((self.reference_atoms[p[0]+i].get_parent().id[1],
-                                  self.reference_atoms[p[1]+i].get_parent().id[1]))
+                                  mobile_atoms[p[1]+i].get_parent().id[1]))
         return alignment
 
-    def find_best(self, paths, coords1, coords2, mobile_structure):
-        best_paths = sorted(paths, key=lambda p: self.path_score(p, coords1, coords2))[:self.max_kept]
-        
+    def find_best(self, best_paths, coords1, coords2, mobile_atoms):
         best_result = None
         best_rmsd = float('inf')
 
         for path in best_paths:
-            alignment = self.reconstruct_alignment(path)
+            alignment = self.reconstruct_alignment(path, mobile_atoms)
             optimized_alignment = self.optimize_final_path(alignment, coords1, coords2)
             rmsd = self.calculate_rmsd(coords1, coords2, optimized_alignment)
 
@@ -248,13 +277,23 @@ class CEAligner:
         return list(reversed(alignment))
 
     def get_aligned_coords(self, coords1, coords2, alignment):
-        coords1_aligned = []
-        coords2_aligned = []
-        for align1, align2 in alignment:
-            if align1 != '-' and align2 != '-':
-                coords1_aligned.append(coords1[align1])
-                coords2_aligned.append(coords2[align2])
-        return np.array(coords1_aligned), np.array(coords2_aligned)
+        # Create a mapping between mobile and target residues based on the alignment
+        coords1_to_coords2 = {}
+        index1 = 0
+        index2 = 0
+
+        for align_mobile, align_target in zip(alignment[0], alignment[1]):
+            if align_mobile != '-' and align_target != '-':
+                coords1_to_coords2[index1] = index2
+                index1 += 1
+                index2 += 1
+            elif align_mobile != '-':
+                index1 += 1
+            elif align_target != '-':
+                index2 += 1
+        coords1_aligned = np.array([coords1[i] for i in coords1_to_coords2.keys()])
+        coords2_aligned = np.array([coords2[i] for i in coords1_to_coords2.values()])
+        return coords1_aligned, coords2_aligned
 
     def calculate_rmsd(self, coords1, coords2, alignment):
         aligned_coords1, aligned_coords2 = self.get_aligned_coords(coords1, coords2, alignment)
@@ -273,8 +312,7 @@ class CEAligner:
         return Vt.T @ U.T
 
     def calculate_translation(self, coords1, coords2, alignment):
-        aligned_coords1 = np.array([coords1[i] for i, j in alignment if i != '-' and j != '-'])
-        aligned_coords2 = np.array([coords2[j] for i, j in alignment if i != '-' and j != '-'])
+        aligned_coords1, aligned_coords2 = self.get_aligned_coords(coords1, coords2, alignment)
         
         centroid1 = np.mean(aligned_coords1, axis=0)
         centroid2 = np.mean(aligned_coords2, axis=0)
@@ -285,7 +323,12 @@ class CEAligner:
     def apply_transformation(self, coords, rotation, translation):
         return (rotation @ coords.T).T + translation
 
-    def path_score(self, path, coords1, coords2):
-        c1 = np.array([coords1[p[0]:p[0]+self.window_size] for p in path]).reshape(-1, 3)
-        c2 = np.array([coords2[p[1]:p[1]+self.window_size] for p in path]).reshape(-1, 3)
-        return self.calculate_rmsd(c1, c2, list(zip(range(len(c1)), range(len(c2)))))
+    @staticmethod
+    @jit(nopython=True)
+    def path_score(path, coords1, coords2, window_size):
+        total_distance = 0.0
+        for p in path:
+            c1 = coords1[p[0]:p[0]+window_size]
+            c2 = coords2[p[1]:p[1]+window_size]
+            total_distance += np.sum((c1 - c2)**2)
+        return np.sqrt(total_distance / (len(path) * window_size))
