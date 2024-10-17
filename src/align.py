@@ -7,11 +7,11 @@ from Bio import pairwise2
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Align import MultipleSeqAlignment, PairwiseAligner
-from src.cealign import CEAligner
+from .cealign import CEAligner
 from Bio.Data.PDBData import protein_letters_3to1_extended
 import numpy as np
-from src.selection import StructureSelector
-from src.tmalign import tmalign
+from .selection import StructureSelector
+from .tmalign import tmalign
 from itertools import combinations
 
 def align(mobile_structure, target_structure, method='superimposer', **kwargs):

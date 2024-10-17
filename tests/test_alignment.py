@@ -1,14 +1,15 @@
 import unittest
+import sys
+sys.path.append('../src')
 import pymol
 from pymol import cmd
 from Bio.PDB import PDBParser
-from src.selection import StructureSelector
-from src.align import align, cealign
-from src.rmsd import rms_cur
-from src.tmalign import tmalign
+from .selection import StructureSelector
+from .align import align, cealign
+from .rmsd import rms_cur
+from .tmalign import tmalign
 import numpy as np
 import time
-
 class TestAlignment(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -20,7 +21,7 @@ class TestAlignment(unittest.TestCase):
     def setUp(self):
         print("\nSetting up test...")
         start_time = time.time()
-        self.parser = PDBParser()
+        self.parser = PDBParser(QUIET=True)
         print("Loading structures...")
         self.structure_fixed = self.parser.get_structure("7w9f", "examples/7w9f.pdb")
         self.structure_mobile = self.parser.get_structure("7w9f_polyA", "examples/7w9f_polyA.pdb")
