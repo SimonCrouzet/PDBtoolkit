@@ -133,3 +133,58 @@ def cealign(mobile_structure, target_structure, transform=False, window_size=8, 
     aligner.set_reference(target_structure)
     return aligner.align(mobile_structure, transform=transform)
 
+
+class NaiveAligner:
+    def __init__(self, max_atoms=25):
+        self.max_atoms = max_atoms
+
+    def align(self, coords1, coords2):
+        """
+        Perform a naive alignment between two coordinate arrays.
+        
+        :param coords1: numpy array of shape (n, 3) representing coordinates of the first structure
+        :param coords2: numpy array of shape (m, 3) representing coordinates of the second structure
+        :return: dictionary containing the best alignment and total distance
+        :raises ValueError: if the number of atoms in the shorter array exceeds max_atoms
+        """
+        if len(coords1) <= len(coords2):
+            shorter, longer = coords1, coords2
+            swap = False
+        else:
+            shorter, longer = coords2, coords1
+            swap = True
+
+        if len(longer) > self.max_atoms:
+            raise ValueError(f"Number of atoms in the longer array ({len(longer)}) exceeds the maximum allowed ({self.max_atoms})")
+
+        best_alignment = None
+        best_distance = float('inf')
+
+        # Generate all possible alignments
+        for alignment in self._generate_alignments(len(shorter), len(longer)):
+            distance = self._calculate_distance(shorter, longer, alignment)
+            if distance < best_distance:
+                best_distance = distance
+                best_alignment = alignment
+
+        # If we swapped the arrays, we need to swap back the alignment
+        if swap:
+            best_alignment = [(j, i) for i, j in best_alignment]
+
+        return {
+            'alignment': best_alignment,
+            'total_distance': best_distance
+        }
+
+    def _generate_alignments(self, n, m):
+        """
+        Generate all possible alignments between arrays of length n and m,
+        where n <= m, using all atoms from the shorter array (length n)
+        and allowing gaps only in the longer array.
+        """
+        for indices in combinations(range(m), n):
+            yield list(enumerate(indices))
+
+    def _calculate_distance(self, coords1, coords2, alignment):
+        """Calculate total distance for a given alignment."""
+        return sum(np.linalg.norm(coords1[i] - coords2[j]) for i, j in alignment)
