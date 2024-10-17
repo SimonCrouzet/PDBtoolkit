@@ -1,4 +1,5 @@
 from copy import deepcopy
+import logging
 from Bio import PDB
 import re
 
@@ -8,31 +9,55 @@ class StructureSelector:
     def __init__(self, structure):
         self.structure = structure
 
-    def select(self, selection_string, index_only=False):
+    def select(self, selection_string, index_only=False, state=1):
+        logging.debug(f"Selecting atoms with: {selection_string}, state: {state}")
         parsed_selection = self._parse(selection_string)
         
         if index_only:
-            return [atom.serial_number for atom in self.structure.get_atoms() if self._evaluate(parsed_selection, atom)]
+            return [atom.serial_number for atom in self._get_atoms(state) if self._evaluate(parsed_selection, atom)]
         else:
-            return self._create_new_structure(parsed_selection)
+            return self._create_new_structure(parsed_selection, state)
         
-    def apply_transformation(self, rotation_matrix, translation_vector):
+    def apply_transformation(self, rotation_matrix, translation_vector, state=1):
         """
         Apply a transformation (rotation and translation) to the selected structure.
         
         :param rotation_matrix: 3x3 rotation matrix
         :param translation_vector: 3D translation vector
         """
-        for atom in self.structure.get_atoms():
+        for atom in self._get_atoms(state):
             atom.transform(rotation_matrix, translation_vector)
 
-    def get_coordinates(self):
+    def get_coordinates(self, state=1):
         """
         Return a numpy array of atomic coordinates.
         
+        :param state: State to use for coordinate extraction (default: 1)
         :return: numpy array of shape (n_atoms, 3)
         """
-        return np.array([atom.coord for atom in self.structure.get_atoms()])
+        return np.array([atom.coord for atom in self._get_atoms(state)])
+    
+    def get_structure(self):
+        return self.structure
+
+    def _get_atoms(self, state=1):
+        """
+        Get atoms from the specified state.
+        
+        :param state: State to use for atom selection (default: 1)
+        :return: iterator of atoms
+        """
+        if len(self.structure) > 1:
+            logging.warning(f"Multiple models found ({len(self.structure)}), using the model {state}")
+        count_atoms = 0
+        for model in self.structure:
+            if model.id == state - 1:  # Biopython uses 0-based indexing for models
+                for chain in model:
+                    for residue in chain:
+                        for atom in residue:
+                            count_atoms += 1
+                            yield atom
+                return  # Stop after processing the specified state
 
     def _parse(self, selection_string):
         tokens = re.findall(r'\(|\)|and|or|not|\S+', selection_string)
@@ -112,24 +137,30 @@ class StructureSelector:
                 result.add(int(part))
         return result
 
-    def _create_new_structure(self, parsed_selection):
+    def _create_new_structure(self, parsed_selection, state=1):
         new_structure = PDB.Structure.Structure(self.structure.id)
-        
-        for model in self.structure:
-            new_model = PDB.Model.Model(model.id)
-            for chain in model:
-                new_chain = PDB.Chain.Chain(chain.id)
-                for residue in chain:
-                    new_residue = PDB.Residue.Residue(residue.id, residue.resname, residue.segid)
-                    for atom in residue:
-                        if self._evaluate(parsed_selection, atom):
-                            new_residue.add(atom.copy())
-                    if len(new_residue):
-                        new_chain.add(new_residue)
-                if len(new_chain):
-                    new_model.add(new_chain)
-            if len(new_model):
-                new_structure.add(new_model)
-        
+        new_model = PDB.Model.Model(0)  # Create a single model
+        new_structure.add(new_model)
+
+        atoms_to_add = list(self._get_atoms(state))
+       
+        for atom in atoms_to_add:
+            if self._evaluate(parsed_selection, atom):
+                chain_id = atom.parent.parent.id
+                residue_id = atom.parent.id
+               
+                if chain_id not in new_model:
+                    new_model.add(PDB.Chain.Chain(chain_id))
+               
+                chain = new_model[chain_id]
+                if residue_id not in chain:
+                    new_residue = PDB.Residue.Residue(residue_id, atom.parent.resname, atom.parent.segid)
+                    chain.add(new_residue)
+               
+                new_atom = atom.copy()
+                chain[residue_id].add(new_atom)
+
+        logging.debug(f"New structure created with {len(list(new_structure.get_atoms()))} atoms")
         return new_structure
+
 
