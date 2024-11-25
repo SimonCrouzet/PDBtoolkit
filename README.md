@@ -1,15 +1,27 @@
-# PDBtools: Protein Data Bank Tools
+# PDBtoolkit: Protein Data Bank Toolkit
 
-PDBtools is a Python package for working with protein structures from the Protein Data Bank (PDB). It specializes in structural alignments and RMSD calculations, with a focus on antibody structures. The package uses a PyMOL-inspired syntax for structure selection, making it intuitive for users familiar with PyMOL.
+PDBtoolkit is a Python package for working with protein structures from the Protein Data Bank (PDB). It specializes in structural alignments and RMSD calculations, with a focus on antibody structures. The package uses a PyMOL-inspired syntax for structure selection, making it intuitive for users familiar with PyMOL.
 
 ## Installation
 
-PDBtools requires the following packages:
+PDBtoolkit requires the following packages:
 
 - NumPy
 - Biopython
 - SciPy
 - Numba
+
+Local installation:
+```
+git clone https://github.com/SimonCrouzet/PDBtoolkit.git
+cd pdbtoolkit
+python setup.py install
+```
+
+End users (not available yet)
+```
+pip install pdbtoolkit
+```
 
 ## Key Features
 
@@ -22,10 +34,10 @@ PDBtools requires the following packages:
 
 ### Structure Selection
 
-PDBtools uses a selection syntax inspired by PyMOL, making it easy for users familiar with PyMOL to work with the package. Here's an example:
+PDBtoolkit uses a selection syntax inspired by PyMOL, making it easy for users familiar with PyMOL to work with the package. Here's an example:
 
 ```python
-from pdbtools.selection import StructureSelector
+from pdbtoolkit.selection import StructureSelector
 
 selector = StructureSelector(structure)
 
@@ -49,8 +61,8 @@ This PyMOL-inspired syntax allows for intuitive and flexible selection of struct
 Here's a detailed example of how to align two structures:
 
 ```python
-from pdbtools.align import align
-from pdbtools.selection import StructureSelector
+from pdbtoolkit.align import align
+from pdbtoolkit.selection import StructureSelector
 from Bio.PDB import PDBParser
 
 # Parse PDB files
@@ -86,11 +98,13 @@ This example demonstrates how to:
 
 ### Calculating Antibody RMSD
 
-PDBtools includes a specialized function for calculating RMSD values for different parts of an antibody structure. Here's how to use it:
+ALPHA VERSION - TO BE TESTED
+
+PDBtoolkit includes a specialized function for calculating RMSD values for different parts of an antibody structure. Here's how to use it:
 
 ```python
-from pdbtools.rmsd import calculate_antibody_rmsd
-from pdbtools.selection import StructureSelector
+from pdbtoolkit.rmsd import calculate_antibody_rmsd
+from pdbtoolkit.selection import StructureSelector
 from Bio.PDB import PDBParser
 
 # Parse PDB files
@@ -142,11 +156,11 @@ The `calculate_antibody_rmsd` function provides RMSD values for:
 
 ## License
 
-PDBtools is released under the MIT License. See the [LICENSE](LICENSE) file for details.
+PDBtoolkit is released under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## Contact & Contributing
 
-We welcome contributions to PDBtools! If you have ideas for new features or improvements, please open an issue or submit a pull request on our GitHub repository.
+We welcome contributions to PDBtoolkit! If you have ideas for new features or improvements, please open an issue or submit a pull request on our GitHub repository.
 
 For questions, suggestions, or issues, please contact the project maintainer.
 You can also open an issue on our GitHub repository for bug reports or feature requests.
