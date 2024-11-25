@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdbtoolkit"
+version = "0.1"
+dependencies = [
+    "numpy",
+    "biopython",
+    "abnumber",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["*.py"]  # All Python files in tests/ are test files
+addopts = "-ra -q"
+pythonpath = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}

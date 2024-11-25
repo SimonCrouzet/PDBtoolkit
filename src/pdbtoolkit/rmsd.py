@@ -83,10 +83,10 @@ def sanity_check(nb_atoms_expected, structure):
     """
     nb_atoms = len(list(structure.get_atoms()))
     if nb_atoms != nb_atoms_expected:
-        raise ValueError(f"Number of atoms in structure ({str(nb_atoms)}) does not match the expected number ({str(nb_atoms_expected)})")
-    return True
+        return False, nb_atoms
+    return True, nb_atoms
 
-def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metadata, reference_metadata, all_atoms=False, align_method='cealign'):
+def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metadata, reference_metadata, all_atoms=False, align_method='cealign', calculate_entire_fab=True):
     """
     Calculate RMSD of antibodies, including antigen and entire Fab.
 
@@ -153,15 +153,28 @@ def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metada
     naive_aligner = NaiveAligner()
     
     for cdr in ['CDRH1', 'CDRH2', 'CDRH3', 'CDRL1', 'CDRL2', 'CDRL3']:
+        if cdr not in mobile_metadata:
+            raise ValueError(f"CDR selection metadata of {cdr} is missing in the mobile structure")
+        if cdr not in reference_metadata:
+            raise ValueError(f"CDR selection metadata of {cdr} is missing in the reference structure")
+        if len(reference_metadata[cdr]) == 0:
+            raise ValueError(f"CDR selection metadata of {cdr} is empty in the reference structure")
         try:
             logging.info(f"Aligning {cdr}")
             chain_type = 'heavy_chain' if cdr[3] == 'H' else 'light_chain'
+            if len(mobile_metadata[cdr]) == 0:
+                # Less severe error, we just skip this CDR (it will trigger the except block)
+                raise ValueError(f"CDR selection metadata of {cdr} is empty")
             cdr_selector = lambda metadata: f"chain {metadata[chain_type]} and resi {'+'.join(map(str, metadata[cdr]))}{atom_selector}"
             mobile_cdr = StructureSelector(mobile_structure).select(cdr_selector(mobile_metadata))
             reference_cdr = StructureSelector(reference_structure).select(cdr_selector(reference_metadata))
 
-            assert sanity_check(len(mobile_metadata[cdr]), mobile_cdr)
-            assert sanity_check(len(reference_metadata[cdr]), reference_cdr)
+            check, nb_atoms = sanity_check(len(mobile_metadata[cdr]), mobile_cdr)
+            if not check:
+                raise ValueError(f"Number of atoms in mobile structure ({str(nb_atoms)}) does not match the expected number ({str(len(mobile_metadata[cdr]))}). Selection was {cdr_selector(mobile_metadata)}")
+            check, nb_atoms = sanity_check(len(reference_metadata[cdr]), reference_cdr)
+            if not check:
+                raise ValueError(f"Number of atoms in reference structure ({str(nb_atoms)}) does not match the expected number ({str(len(reference_metadata[cdr]))}). Selection was {cdr_selector(reference_metadata)}")
             
             mobile_coords = [atom.coord for atom in mobile_cdr.get_atoms()]
             reference_coords = [atom.coord for atom in reference_cdr.get_atoms()]
@@ -178,23 +191,28 @@ def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metada
             results[f"{cdr}"] = np.nan
 
     # Step 4: Calculate RMSD for the entire Fab
-    logging.info("Step 4: Calculating RMSD for entire Fab")
-    fab_selector = lambda metadata: f"chain {metadata['heavy_chain']}+{metadata['light_chain']}{atom_selector}"
-    mobile_fab = StructureSelector(mobile_structure).select(fab_selector(mobile_metadata))
-    reference_fab = StructureSelector(reference_structure).select(fab_selector(reference_metadata))
-    
-    logging.debug(f"Mobile Fab atoms: {len(list(mobile_fab.get_atoms()))}")
-    logging.debug(f"Reference Fab atoms: {len(list(reference_fab.get_atoms()))}")
-    
-    if align_method == 'cealign':
+    if calculate_entire_fab:
+        # Can be long to align, so we skip it if not needed
+        logging.info("Step 4: Calculating RMSD for entire Fab")
+        fab_selector = lambda metadata: f"chain {metadata['heavy_chain']}+{metadata['light_chain']}{atom_selector}"
+        mobile_fab = StructureSelector(mobile_structure).select(fab_selector(mobile_metadata))
+        reference_fab = StructureSelector(reference_structure).select(fab_selector(reference_metadata))
+        
+        logging.debug(f"Mobile Fab atoms: {len(list(mobile_fab.get_atoms()))}")
+        logging.debug(f"Reference Fab atoms: {len(list(reference_fab.get_atoms()))}")
+        
+        if align_method == 'cealign':
+            fab_alignment = cealign(mobile_fab, reference_fab)
+        elif align_method == 'tmalign':
+            fab_alignment = tmalign(mobile_fab, reference_fab)
+        else:
+            raise ValueError(f"Unknown alignment method: {align_method}")
         fab_alignment = cealign(mobile_fab, reference_fab)
-    elif align_method == 'tmalign':
-        fab_alignment = tmalign(mobile_fab, reference_fab)
+        results['Entire Fab RMSD'] = fab_alignment['rmsd']
+        logging.info(f"Fab RMSD: {fab_alignment['rmsd']:.4f}")
     else:
-        raise ValueError(f"Unknown alignment method: {align_method}")
-    fab_alignment = cealign(mobile_fab, reference_fab)
-    results['Entire Fab RMSD'] = fab_alignment['rmsd']
-    logging.info(f"Fab RMSD: {fab_alignment['rmsd']:.4f}")
+        results['Entire Fab RMSD'] = np.nan
+        logging.info("Skipping calculation of entire Fab RMSD")
 
     logging.info("Antibody RMSD calculation completed")
     return {k: round(v, 4) for k, v in results.items()}
