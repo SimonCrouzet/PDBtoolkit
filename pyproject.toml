@@ -9,13 +9,15 @@ dependencies = [
     "numpy",
     "biopython",
     "abnumber",
+    "numba",
 ]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["*.py"]  # All Python files in tests/ are test files
-addopts = "-ra -q"
-pythonpath = ["src"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+packages = {find = {where = ["src"]}}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["*.py"]
+addopts = "-ra -q"
+pythonpath = ["src"]
