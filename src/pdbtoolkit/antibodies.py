@@ -1,3 +1,4 @@
+from pathlib import PosixPath
 import re, os
 from Bio import PDB
 from Bio.PDB import PDBParser, Structure, Chain, Model
@@ -10,6 +11,216 @@ import numpy as np
 
 from .selection import StructureSelector
 from .utils import *
+
+"""
+Wrapper for 
+"""
+class AbMetadata():
+    def __init__(self, input_file, scheme: str = 'chothia', allow_multidomains: bool = False):
+        if isinstance(input_file, PosixPath):
+            input_file = str(input_file)
+        self.scheme = scheme
+        self.get_metadata(input_file, allow_multidomains=allow_multidomains)
+
+    def get_metadata(self, input_file: str, allow_multidomains: bool = False):
+        if input_file.endswith('.pdb'):
+            chain_indices = get_residue_indices_from_struct(PDBParser(QUIET=True).get_structure(
+                os.path.splitext(os.path.basename(input_file))[0], input_file
+            ))
+            initial_sequence = extract_sequences(input_file, by_chain=True)
+        else:
+            raise NotImplementedError("Only PDB files are supported for now")
+
+        self.antigen_chain = []
+        self.heavy_chain, self.heavy_chain_start, self.numbered_heavy_chain = [], [], []
+        self.light_chain, self.light_chain_start, self.numbered_light_chain = [], [], []
+        for c in initial_sequence.keys():
+            logging.debug(f"Processing chain {c}")
+            try:
+                chains_seq = None
+                chains_seq = abnumber.Chain.multiple_domains(initial_sequence[c], scheme=self.scheme)
+                for chain_seq in chains_seq:
+                    if chain_seq.is_heavy_chain():
+                        self.heavy_chain.append(c)
+                        self.heavy_chain_start.append(chain_indices[c][0])
+                        self.numbered_heavy_chain.append(chain_seq)
+                    elif chain_seq.is_light_chain():
+                        self.light_chain.append(c)
+                        self.light_chain_start.append(chain_indices[c][0])
+                        self.numbered_light_chain.append(chain_seq)
+                    else:
+                        raise ValueError(f"Unknown chain type for chain {c}")
+            except:
+                self.antigen_chain.append(c)
+
+        if ((len(self.heavy_chain) > 1) or (len(self.light_chain) > 1)) and (not allow_multidomains):
+            print(f"Allow multidomains is set to {allow_multidomains}")
+            raise ValueError(f"Multiple domains found in chain {c} - Skipping (use allow_multidomains=True to process)")
+        if not hasattr(self, 'heavy_chain') and not hasattr(self, 'light_chain'):
+            raise ValueError(f"Heavy and light chains could not be identified from file {input_file}")
+        if not hasattr(self, 'heavy_chain') or not hasattr(self, 'light_chain'):
+            raise ValueError(f"Either heavy or light chain could not be identified from file {input_file}")
+
+        self.CDRH1, self.CDRH2, self.CDRH3 = [], [], []
+        self.CDRL1, self.CDRL2, self.CDRL3 = [], [], []
+        self.CDRH1_seq, self.CDRH2_seq, self.CDRH3_seq = [], [], []
+        self.CDRL1_seq, self.CDRL2_seq, self.CDRL3_seq = [], [], []
+
+        for h_chain_start, numb_h_chain in zip(self.heavy_chain_start, self.numbered_heavy_chain):
+            temp_arr_cdr1, temp_arr_cdr2, temp_arr_cdr3 = [], [], []
+            temp_seq_cdr1, temp_seq_cdr2, temp_seq_cdr3 = [], [], []
+            for idx, (pos, aa) in zip(range(h_chain_start, len(numb_h_chain)+h_chain_start), numb_h_chain):
+                if pos.get_region() == 'CDR1':
+                    temp_arr_cdr1.append(idx)
+                    temp_seq_cdr1.append(aa)
+                elif pos.get_region() == 'CDR2':
+                    temp_arr_cdr2.append(idx)
+                    temp_seq_cdr2.append(aa)
+                elif pos.get_region() == 'CDR3':
+                    temp_arr_cdr3.append(idx)
+                    temp_seq_cdr3.append(aa)
+            self.CDRH1.append(temp_arr_cdr1)
+            self.CDRH2.append(temp_arr_cdr2)
+            self.CDRH3.append(temp_arr_cdr3)
+            self.CDRH1_seq.append(temp_seq_cdr1)
+            self.CDRH2_seq.append(temp_seq_cdr2)
+            self.CDRH3_seq.append(temp_seq_cdr3)
+
+        for l_chain_start, numb_l_chain in zip(self.light_chain_start, self.numbered_light_chain):
+            temp_arr_cdr1, temp_arr_cdr2, temp_arr_cdr3 = [], [], []
+            temp_seq_cdr1, temp_seq_cdr2, temp_seq_cdr3 = [], [], []
+            for idx, (pos, aa) in zip(range(l_chain_start, len(numb_l_chain)+l_chain_start), numb_l_chain):
+                if pos.get_region() == 'CDR1':
+                    temp_arr_cdr1.append(idx)
+                    temp_seq_cdr1.append(aa)
+                elif pos.get_region() == 'CDR2':
+                    temp_arr_cdr2.append(idx)
+                    temp_seq_cdr2.append(aa)
+                elif pos.get_region() == 'CDR3':
+                    temp_arr_cdr3.append(idx)
+                    temp_seq_cdr3.append(aa)
+            self.CDRL1.append(temp_arr_cdr1)
+            self.CDRL2.append(temp_arr_cdr2)
+            self.CDRL3.append(temp_arr_cdr3)
+            self.CDRL1_seq.append(temp_seq_cdr1)
+            self.CDRL2_seq.append(temp_seq_cdr2)
+            self.CDRL3_seq.append(temp_seq_cdr3)
+
+        # Retrocompatibility - if only one variable domain, squeeze the lists
+        if len(self.heavy_chain) == 1 and len(self.light_chain) == 1:
+            self.heavy_chain = self.heavy_chain[0]
+            self.heavy_chain_start = self.heavy_chain_start[0]
+            self.numbered_heavy_chain = self.numbered_heavy_chain[0]
+            self.light_chain = self.light_chain[0]
+            self.light_chain_start = self.light_chain_start[0]
+            self.numbered_light_chain = self.numbered_light_chain[0]
+            self.CDRH1 = self.CDRH1[0]
+            self.CDRH2 = self.CDRH2[0]
+            self.CDRH3 = self.CDRH3[0]
+            self.CDRL1 = self.CDRL1[0]
+            self.CDRL2 = self.CDRL2[0]
+            self.CDRL3 = self.CDRL3[0]
+            self.CDRH1_seq = self.CDRH1_seq[0]
+            self.CDRH2_seq = self.CDRH2_seq[0]
+            self.CDRH3_seq = self.CDRH3_seq[0]
+            self.CDRL1_seq = self.CDRL1_seq[0]
+            self.CDRL2_seq = self.CDRL2_seq[0]
+            self.CDRL3_seq = self.CDRL3_seq[0]
+
+    def update_chain_start(self, new_start=None, input_file=None):
+        """
+        Update chain start positions and reindex CDRs accordingly.
+        
+        Args:
+            new_start (dict, optional): Dictionary with chain IDs as keys and new start positions as values
+            input_file (str, optional): Path to PDB file to extract new chain start positions
+            
+        Raises:
+            ValueError: If neither new_start nor input_file is provided
+            ValueError: If provided chain IDs don't match existing chains
+            NotImplementedError: If input file format is not supported
+        """
+        if new_start is None and input_file is None:
+            raise ValueError("Either new_start or input_file must be provided")
+            
+        # If input file provided, extract chain indices
+        if input_file is not None:
+            if isinstance(input_file, PosixPath):
+                input_file = str(input_file)
+                
+            if input_file.endswith('.pdb'):
+                chain_indices = get_residue_indices_from_struct(PDBParser(QUIET=True).get_structure(
+                    os.path.splitext(os.path.basename(input_file))[0], input_file
+                ))
+                new_start = {}
+                for chain in chain_indices:
+                    new_start[chain] = chain_indices[chain][0]
+            else:
+                raise NotImplementedError("Only PDB files are supported for now")
+        
+        # Validate chain IDs
+        heavy_chains = [self.heavy_chain] if isinstance(self.heavy_chain, str) else self.heavy_chain
+        light_chains = [self.light_chain] if isinstance(self.light_chain, str) else self.light_chain
+        
+        for chain in new_start:
+            if chain not in heavy_chains and chain not in light_chains:
+                raise ValueError(f"Chain {chain} not found in existing chains")
+        
+        # Update heavy chain starts and reindex CDRs
+        if isinstance(self.heavy_chain, str):
+            if self.heavy_chain in new_start:
+                offset = new_start[self.heavy_chain] - self.heavy_chain_start
+                self.heavy_chain_start = new_start[self.heavy_chain]
+                self.CDRH1 = [pos + offset for pos in self.CDRH1]
+                self.CDRH2 = [pos + offset for pos in self.CDRH2]
+                self.CDRH3 = [pos + offset for pos in self.CDRH3]
+        else:
+            for i, chain in enumerate(self.heavy_chain):
+                if chain in new_start:
+                    offset = new_start[chain] - self.heavy_chain_start[i]
+                    self.heavy_chain_start[i] = new_start[chain]
+                    self.CDRH1[i] = [pos + offset for pos in self.CDRH1[i]]
+                    self.CDRH2[i] = [pos + offset for pos in self.CDRH2[i]]
+                    self.CDRH3[i] = [pos + offset for pos in self.CDRH3[i]]
+        
+        # Update light chain starts and reindex CDRs
+        if isinstance(self.light_chain, str):
+            if self.light_chain in new_start:
+                offset = new_start[self.light_chain] - self.light_chain_start
+                self.light_chain_start = new_start[self.light_chain]
+                self.CDRL1 = [pos + offset for pos in self.CDRL1]
+                self.CDRL2 = [pos + offset for pos in self.CDRL2]
+                self.CDRL3 = [pos + offset for pos in self.CDRL3]
+        else:
+            for i, chain in enumerate(self.light_chain):
+                if chain in new_start:
+                    offset = new_start[chain] - self.light_chain_start[i]
+                    self.light_chain_start[i] = new_start[chain]
+                    self.CDRL1[i] = [pos + offset for pos in self.CDRL1[i]]
+                    self.CDRL2[i] = [pos + offset for pos in self.CDRL2[i]]
+                    self.CDRL3[i] = [pos + offset for pos in self.CDRL3[i]]
+
+    def to_dict(self):
+        return {
+            'scheme': self.scheme,
+            'heavy_chain': self.heavy_chain,
+            'light_chain': self.light_chain,
+            'antigen_chain': self.antigen_chain,
+            'heavy_chain_start': self.heavy_chain_start,
+            'light_chain_start': self.light_chain_start,
+            'CDRH1': self.CDRH1,
+            'CDRH2': self.CDRH2,
+            'CDRH3': self.CDRH3,
+            'CDRL1': self.CDRL1,
+            'CDRL2': self.CDRL2,
+            'CDRL3': self.CDRL3,
+            'CDRH1_seq': self.CDRH1_seq,
+            'CDRH2_seq': self.CDRH2_seq,
+            'CDRH3_seq': self.CDRH3_seq,
+            'CDRL1_seq': self.CDRL1_seq,
+            'CDRL2_seq': self.CDRL2_seq,
+            'CDRL3_seq': self.CDRL3_seq
+        }
 
 
 class AntibodySelector(StructureSelector):
