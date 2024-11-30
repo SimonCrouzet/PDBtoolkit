@@ -1,41 +1,10 @@
-import copy
-from Bio.PDB import Superimposer
-from Bio.PDB.StructureAlignment import StructureAlignment
-from Bio.PDB import PDBParser
-from Bio import pairwise2
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-from Bio.Align import MultipleSeqAlignment, PairwiseAligner
-from .cealign import CEAligner
+import copy, logging
 from Bio.Data.PDBData import protein_letters_3to1_extended
 import numpy as np
 from .selection import StructureSelector
 from .align import *
+from .utils import *
 
-def get_rmsd(atoms1, atoms2):
-    """
-    Calculate RMSD between two lists of atoms.
-    
-    :param atoms1: List of atoms
-    :param atoms2: List of atoms
-    :return: RMSD value
-    """
-    if len(atoms1) != len(atoms2):
-        raise ValueError("Number of atoms in atoms1 and atoms2 must be equal")
-    
-    if (not isinstance(atoms1, np.ndarray)) and (not isinstance(atoms2, np.ndarray)):
-        coords1 = np.array([atom.coord for atom in atoms1])
-        coords2 = np.array([atom.coord for atom in atoms2])
-    else:
-        coords1 = atoms1
-        coords2 = atoms2
-
-    distances = []
-    for coord1, coord2 in zip(coords1, coords2):
-        distance = np.linalg.norm(coord1 - coord2)
-        distances.append(distance ** 2)
-
-    return np.sqrt(np.mean(distances))
 
 def get_aligned_coords(coords1, coords2, alignment):
     """

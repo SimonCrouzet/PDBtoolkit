@@ -9,6 +9,8 @@ from collections import defaultdict
 import numpy as np
 
 from .selection import StructureSelector
+from .utils import *
+
 
 class AntibodySelector(StructureSelector):
     """
@@ -146,17 +148,6 @@ class AntibodySelector(StructureSelector):
             ]
         return chain_indices
 
-    def _extract_sequences(self) -> Dict[str, str]:
-        """Extract amino acid sequences from each chain in the structure."""
-        sequences = {}
-        for chain in self.internal_structure.get_chains():
-            seq = "".join([
-                protein_letters_3to1.get(residue.resname.capitalize(), 'X')
-                for residue in chain if PDB.is_aa(residue)
-            ])
-            sequences[chain.id] = seq
-        return sequences
-
     def _validate_variable_chains_dict(self, chains_dict: Dict[str, str]):
         """Validate the specify_variable_chains dictionary format and content."""
         # Check dictionary keys
@@ -191,7 +182,7 @@ class AntibodySelector(StructureSelector):
     def _initialize_metadata(self):
         """Initialize antibody metadata."""
         self.chain_indices = self._get_residue_indices_from_struct()
-        self.sequences = self._extract_sequences()
+        self.sequences = extract_sequences_from_struct(self.internal_structure, by_chain=True)
         
         # Initialize chain and CDR attributes
         self.antigen_chain = []

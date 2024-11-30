@@ -1,6 +1,7 @@
 import numpy as np
 from Bio.Align import PairwiseAligner
 from Bio.Data.PDBData import protein_letters_3to1_extended
+from .utils import *
 
 def tmalign(mobile_structure, target_structure, mol_type=0):
     """
@@ -12,8 +13,8 @@ def tmalign(mobile_structure, target_structure, mol_type=0):
     :return: Dict containing alignment results
     """
     # Extract sequences and coordinates
-    mobile_seq = extract_sequence(mobile_structure)
-    target_seq = extract_sequence(target_structure)
+    mobile_seq = extract_sequences_from_struct(mobile_structure, by_chain=False)
+    target_seq = extract_sequences_from_struct(target_structure, by_chain=False)
     mobile_coords = np.array([res['CA'].coord for res in mobile_structure.get_residues() if 'CA' in res])
     target_coords = np.array([res['CA'].coord for res in target_structure.get_residues() if 'CA' in res])
     
@@ -59,10 +60,6 @@ def tmalign(mobile_structure, target_structure, mol_type=0):
         'alignment': alignment,
         'tm_score': final_tm_score
     }
-
-def extract_sequence(structure):
-    """Extract sequence from structure."""
-    return ''.join([protein_letters_3to1_extended.get(residue.get_resname(), "X") for residue in structure.get_residues() if residue.id[0] == ' '])
 
 def convert_alignment_to_pairs(alignment, len_mobile, len_target):
     """Convert string alignment to list of index pairs."""
