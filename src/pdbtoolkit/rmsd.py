@@ -55,7 +55,7 @@ def sanity_check(nb_atoms_expected, structure):
         return False, nb_atoms
     return True, nb_atoms
 
-def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metadata, reference_metadata, all_atoms=False, align_method='cealign', calculate_entire_fab=True):
+def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metadata, reference_metadata, all_atoms=False, align_method='cealign', calculate_entire_fab=True, align_on_antigen=True):
     """
     Calculate RMSD of antibodies, including antigen and entire Fab.
 
@@ -72,7 +72,6 @@ def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metada
 
     atom_selector = "" if all_atoms else " and name CA"
 
-    # Step 1: Align on antigen using sequence_align
     if isinstance(mobile_metadata['antigen_chain'], str):
         mobile_metadata['antigen_chain'] = [mobile_metadata['antigen_chain']]
     if isinstance(reference_metadata['antigen_chain'], str):
@@ -83,18 +82,20 @@ def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metada
     
     logging.debug(f"Mobile antigen atoms: {len(list(mobile_antigen.get_atoms()))}")
     logging.debug(f"Reference antigen atoms: {len(list(reference_antigen.get_atoms()))}")
-    
-    antigen_alignment = sequence_align(mobile_antigen, reference_antigen)
-    rotation_matrix, translation_vector = antigen_alignment['rotation'], antigen_alignment['translation']
-    
-    logging.info(f"Antigen alignment RMSD: {antigen_alignment['rmsd']:.4f}")
-    
-    # Apply transformation to the entire mobile structure
-    StructureSelector(mobile_structure).apply_transformation(rotation_matrix, translation_vector)
-    logging.info("Applied transformation to mobile structure")
 
-    # Calculate RMSD for antigen
-    results['Antigen RMSD'] = antigen_alignment['rmsd']
+    if align_on_antigen:
+        # Step 1: Align on antigen using sequence_align
+        antigen_alignment = sequence_align(mobile_antigen, reference_antigen)
+        rotation_matrix, translation_vector = antigen_alignment['rotation'], antigen_alignment['translation']
+        
+        logging.info(f"Antigen alignment RMSD: {antigen_alignment['rmsd']:.4f}")
+        
+        # Apply transformation to the entire mobile structure
+        StructureSelector(mobile_structure).apply_transformation(rotation_matrix, translation_vector)
+        logging.info("Applied transformation to mobile structure")
+
+        # Calculate RMSD for antigen
+        results['Antigen RMSD'] = antigen_alignment['rmsd']
 
     # Step 2: Align and calculate RMSD for heavy and light chains
     logging.info("Step 2: Aligning heavy and light chains")
@@ -111,6 +112,10 @@ def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metada
             chain_alignment = cealign(mobile_chain, reference_chain)
         elif align_method == 'tmalign':
             chain_alignment = tmalign(mobile_chain, reference_chain)
+        elif align_method == 'sequence':
+            chain_alignment = sequence_align(mobile_chain, reference_chain)
+        elif align_method == 'none':
+            chain_alignment = rms_cur(mobile_chain, reference_chain)
         else:
             raise ValueError(f"Unknown alignment method: {align_method}")
         chain_letter = 'H' if chain_type == 'heavy_chain' else 'L'
@@ -174,6 +179,10 @@ def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metada
             fab_alignment = cealign(mobile_fab, reference_fab)
         elif align_method == 'tmalign':
             fab_alignment = tmalign(mobile_fab, reference_fab)
+        elif align_method == 'sequence':
+            fab_alignment = sequence_align(mobile_fab, reference_fab)
+        elif align_method == 'none':
+            fab_alignment = rms_cur(mobile_fab, reference_fab)
         else:
             raise ValueError(f"Unknown alignment method: {align_method}")
         fab_alignment = cealign(mobile_fab, reference_fab)

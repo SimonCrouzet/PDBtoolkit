@@ -1,12 +1,7 @@
 import copy
 import logging
 from Bio.PDB import Superimposer
-from Bio.PDB.StructureAlignment import StructureAlignment
-from Bio.PDB import PDBParser
-from Bio import pairwise2
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-from Bio.Align import MultipleSeqAlignment, PairwiseAligner
+from Bio.Align import PairwiseAligner
 from .cealign import CEAligner
 from Bio.Data.PDBData import protein_letters_3to1_extended
 import numpy as np
