@@ -66,19 +66,28 @@ class AbMetadata():
         self.CDRH1_seq, self.CDRH2_seq, self.CDRH3_seq = [], [], []
         self.CDRL1_seq, self.CDRL2_seq, self.CDRL3_seq = [], [], []
 
-        for h_chain_start, numb_h_chain in zip(self.heavy_chain_start, self.numbered_heavy_chain):
+        for h_chain, h_chain_start, numb_h_chain in zip(self.heavy_chain, self.heavy_chain_start, self.numbered_heavy_chain):
             temp_arr_cdr1, temp_arr_cdr2, temp_arr_cdr3 = [], [], []
             temp_seq_cdr1, temp_seq_cdr2, temp_seq_cdr3 = [], [], []
+
+            # We need to map the antibody numbering to the structure numbering
+            numb_h_chain_indices = [f"{pos.number}{pos.letter}" for pos, aa in numb_h_chain]
+            abnumber2struct = get_sequence_index_mapping(
+                seq1=numb_h_chain.seq, seq2=initial_sequence[h_chain],
+                indices1=numb_h_chain_indices, indices2=initial_struct_index[h_chain]
+            )
+
             for idx, (pos, aa) in zip(range(h_chain_start, len(numb_h_chain)+h_chain_start), numb_h_chain):
                 if pos.get_region() == 'CDR1':
-                    temp_arr_cdr1.append(idx)
+                    temp_arr_cdr1.append(abnumber2struct[f"{pos.number}{pos.letter}"])
                     temp_seq_cdr1.append(aa)
                 elif pos.get_region() == 'CDR2':
-                    temp_arr_cdr2.append(idx)
+                    temp_arr_cdr2.append(abnumber2struct[f"{pos.number}{pos.letter}"])
                     temp_seq_cdr2.append(aa)
                 elif pos.get_region() == 'CDR3':
-                    temp_arr_cdr3.append(idx)
+                    temp_arr_cdr3.append(abnumber2struct[f"{pos.number}{pos.letter}"])
                     temp_seq_cdr3.append(aa)
+
             self.CDRH1.append(temp_arr_cdr1)
             self.CDRH2.append(temp_arr_cdr2)
             self.CDRH3.append(temp_arr_cdr3)
@@ -86,19 +95,26 @@ class AbMetadata():
             self.CDRH2_seq.append(temp_seq_cdr2)
             self.CDRH3_seq.append(temp_seq_cdr3)
 
-        for l_chain_start, numb_l_chain in zip(self.light_chain_start, self.numbered_light_chain):
+        for l_chain, l_chain_start, numb_l_chain in zip(self.light_chain, self.light_chain_start, self.numbered_light_chain):
             temp_arr_cdr1, temp_arr_cdr2, temp_arr_cdr3 = [], [], []
             temp_seq_cdr1, temp_seq_cdr2, temp_seq_cdr3 = [], [], []
+
+            numb_l_chain_indices = [f"{pos.number}{pos.letter}" for pos, aa in numb_l_chain]
+            abnumber2struct = get_sequence_index_mapping(
+                seq1=numb_l_chain.seq, seq2=initial_sequence[l_chain],
+                indices1=numb_l_chain_indices, indices2=initial_struct_index[l_chain]
+            )
             for idx, (pos, aa) in zip(range(l_chain_start, len(numb_l_chain)+l_chain_start), numb_l_chain):
                 if pos.get_region() == 'CDR1':
-                    temp_arr_cdr1.append(idx)
+                    temp_arr_cdr1.append(abnumber2struct[f"{pos.number}{pos.letter}"])
                     temp_seq_cdr1.append(aa)
                 elif pos.get_region() == 'CDR2':
-                    temp_arr_cdr2.append(idx)
+                    temp_arr_cdr2.append(abnumber2struct[f"{pos.number}{pos.letter}"])
                     temp_seq_cdr2.append(aa)
                 elif pos.get_region() == 'CDR3':
-                    temp_arr_cdr3.append(idx)
+                    temp_arr_cdr3.append(abnumber2struct[f"{pos.number}{pos.letter}"])
                     temp_seq_cdr3.append(aa)
+
             self.CDRL1.append(temp_arr_cdr1)
             self.CDRL2.append(temp_arr_cdr2)
             self.CDRL3.append(temp_arr_cdr3)

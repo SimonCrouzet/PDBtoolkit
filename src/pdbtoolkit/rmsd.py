@@ -55,7 +55,7 @@ def sanity_check(nb_atoms_expected, structure):
         return False, nb_atoms
     return True, nb_atoms
 
-def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metadata, reference_metadata, all_atoms=False, align_method='cealign', calculate_entire_fab=True, align_on_antigen=True):
+def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metadata, reference_metadata, all_atoms=False, align_method='cealign', calculate_entire_fab=False, align_on_antigen=True):
     """
     Calculate RMSD of antibodies, including antigen and entire Fab.
 
@@ -165,6 +165,7 @@ def calculate_antibody_rmsd(mobile_structure, reference_structure, mobile_metada
             results[f"{cdr}"] = np.nan
 
     # Step 4: Calculate RMSD for the entire Fab
+    # Careful, this is really algorithm dependent - some methods are not robust to multiple chains
     if calculate_entire_fab:
         # Can be long to align, so we skip it if not needed
         logging.info("Step 4: Calculating RMSD for entire Fab")
